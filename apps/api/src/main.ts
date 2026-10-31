@@ -2,7 +2,19 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
+function requireProductionEnv() {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const required = ['DATABASE_URL', 'REDIS_URL', 'CORS_ORIGINS'];
+  const missing = required.filter((name) => !process.env[name]?.trim());
+  if (missing.length) {
+    throw new Error(`Missing required production environment variables: ${missing.join(', ')}`);
+  }
+}
+
 async function bootstrap() {
+  requireProductionEnv();
+
   const app = await NestFactory.create(AppModule);
   const allowedOrigins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
