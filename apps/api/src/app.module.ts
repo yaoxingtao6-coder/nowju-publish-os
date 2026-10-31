@@ -5,6 +5,7 @@ import { AssetController } from './asset.controller';
 import { AssetService } from './asset.service';
 import { ConfirmationController } from './confirmation.controller';
 import { ConfirmationService } from './confirmation.service';
+import { DatabaseBootstrapService } from './database-bootstrap.service';
 import { HealthController } from './health.controller';
 import { PlatformAdapterService } from './platform-adapter.service';
 import { PublishController } from './publish.controller';
@@ -21,6 +22,7 @@ import { PublishWorkerService } from './publish-worker.service';
     ConfirmationController,
   ],
   providers: [
+    DatabaseBootstrapService,
     PublishService,
     PlatformAdapterService,
     PublishWorkerService,
