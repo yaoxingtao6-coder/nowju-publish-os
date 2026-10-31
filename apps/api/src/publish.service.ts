@@ -42,10 +42,12 @@ export class PublishService implements OnModuleInit, OnModuleDestroy {
         platform TEXT NOT NULL,
         title TEXT,
         status TEXT NOT NULL,
+        last_error TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await this.pool.query(`ALTER TABLE publish_jobs ADD COLUMN IF NOT EXISTS last_error TEXT`);
   }
 
   async onModuleDestroy() {
@@ -60,7 +62,6 @@ export class PublishService implements OnModuleInit, OnModuleDestroy {
        FROM publish_jobs
        ORDER BY created_at DESC`,
     );
-
     return rows.map(this.mapRow);
   }
 
@@ -71,7 +72,6 @@ export class PublishService implements OnModuleInit, OnModuleDestroy {
        WHERE id = $1`,
       [id],
     );
-
     return rows[0] ? this.mapRow(rows[0]) : null;
   }
 
@@ -100,6 +100,15 @@ export class PublishService implements OnModuleInit, OnModuleDestroy {
     );
 
     return this.mapRow(rows[0]);
+  }
+
+  async setStatus(id: string, status: PublishStatus, lastError: string | null = null) {
+    await this.pool.query(
+      `UPDATE publish_jobs
+       SET status = $2, last_error = $3, updated_at = NOW()
+       WHERE id = $1`,
+      [id, status, lastError],
+    );
   }
 
   private mapRow(row: any): PublishJob {
