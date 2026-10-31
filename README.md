@@ -1,38 +1,58 @@
 # NOWJU Publish OS
 
-AI-driven multi-platform content production, compliance review, publishing orchestration, and analytics system.
+NOWJU 是面向多平台内容生产、账号管理、发布调度、人工确认和数据复盘的自托管发布中控。
 
-## Current milestone
+## 当前能力
 
-v0.1 bootstrap: API service, publishing domain contracts, health check, local infrastructure, and CI baseline.
+- React 中控前端（`apps/web`）
+- NestJS API（`apps/api`）
+- PostgreSQL 发布任务 / 账号 / 素材 / 确认记录
+- Redis + BullMQ 发布队列与失败重试
+- 六平台统一 Adapter：小红书、抖音、快手、视频号、微博、B站
+- 人工确认发布流程
+- GitHub Actions CI
+- 腾讯云 CloudBase / CloudBase Run 部署基础
 
-## Architecture
-
-- `apps/api` — NestJS API and orchestration layer
-- `packages/publishing` — platform adapter contracts and task states
-- `infra` — PostgreSQL / Redis local infrastructure
-- `.github/workflows` — CI
-
-## Local development
+## 本地开发
 
 ```bash
 cp .env.example .env
+docker compose up -d postgres redis
 npm install
-npm run dev
+npm run dev:api
 ```
 
-Start infrastructure:
+另开终端：
 
 ```bash
-docker compose up -d postgres redis
+npm run dev:web
 ```
 
-Health check after API starts:
+默认地址：
 
-```text
-GET http://localhost:3000/health
+- Web: `http://localhost:5173`
+- API: `http://localhost:3000`
+- Health: `http://localhost:3000/health`
+
+## 构建
+
+```bash
+npm install
+npm run build
+npm test
 ```
 
-## Security note
+## 腾讯云部署
 
-Never commit platform tokens, cookies, passwords, API keys, or `.env` files. Platform integrations will prefer official APIs; browser-assisted flows must keep final human confirmation where required.
+部署说明见：`docs/DEPLOY_TENCENT_CLOUDBASE.md`
+
+推荐结构：
+
+- React 前端 → CloudBase 静态网站托管
+- NestJS API → CloudBase Run
+- PostgreSQL / Redis → 独立托管服务
+- 素材 → CloudBase 存储 / COS（下一阶段接真实上传）
+
+## 安全原则
+
+不要把任何平台 Token、Cookie、密码、SecretId、SecretKey 或 `.env` 提交到 GitHub。真实平台自动发布优先使用官方 API；没有官方发布权限的平台保持人工确认，不使用绕过检测的自动化方案。
