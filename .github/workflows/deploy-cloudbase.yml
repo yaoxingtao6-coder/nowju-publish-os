@@ -1,0 +1,39 @@
+name: Deploy CloudBase Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      env_id:
+        description: CloudBase environment ID
+        required: true
+        type: string
+      api_base_url:
+        description: Public NOWJU API base URL, e.g. https://api.example.com
+        required: true
+        type: string
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Build web
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm --workspace apps/web run build
+      - name: Install CloudBase CLI
+        run: npm install -g @cloudbase/cli
+      - name: Authenticate CloudBase
+        env:
+          TCB_SECRET_ID: ${{ secrets.TCB_SECRET_ID }}
+          TCB_SECRET_KEY: ${{ secrets.TCB_SECRET_KEY }}
+        run: |
+          test -n "$TCB_SECRET_ID" && test -n "$TCB_SECRET_KEY"
+          tcb login --apiKeyId "$TCB_SECRET_ID" --apiKey "$TCB_SECRET_KEY"
+      - name: Deploy static hosting
+        run: tcb hosting deploy apps/web/dist -e "${{ inputs.env_id }}" --yes
