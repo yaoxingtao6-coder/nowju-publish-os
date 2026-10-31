@@ -21,8 +21,19 @@ type Job = {
 type Asset = { id: string; kind: string; fileName: string; storageUrl: string; createdAt?: string };
 type Confirmation = { publishJobId: string; platform?: string; title?: string; status?: string; createdAt?: string };
 
+function getAdminToken() {
+  return sessionStorage.getItem('nowju_admin_token')?.trim() || '';
+}
+
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, ...init });
+  const adminToken = getAdminToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> || {}),
+  };
+  if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+
+  const res = await fetch(`${API}${path}`, { ...init, headers });
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {
@@ -41,6 +52,7 @@ export default function App() {
   const [pending, setPending] = useState<Confirmation[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [adminToken, setAdminToken] = useState(() => getAdminToken());
 
   async function refresh() {
     setLoading(true); setMessage('');
@@ -49,8 +61,10 @@ export default function App() {
         json<Account[]>('/platform-accounts'), json<Job[]>('/publish-jobs'), json<Asset[]>('/media-assets'), json<Confirmation[]>('/publish-confirmations/pending')
       ]);
       setAccounts(a); setJobs(j); setAssets(m); setPending(p);
-    } catch (e) { setMessage(`连接失败：${(e as Error).message}`); }
-    finally { setLoading(false); }
+    } catch (e) {
+      const detail = (e as Error).message;
+      setMessage(detail === 'UNAUTHORIZED' ? '需要管理员令牌：请在顶部输入后保存。' : `连接失败：${detail}`);
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { refresh(); }, []);
@@ -63,6 +77,21 @@ export default function App() {
     failed: jobs.filter(j => j.status === 'failed' || j.status === 'needs_auth').length,
     assets: assets.length,
   }), [accounts, jobs, pending, assets]);
+
+  async function saveAdminToken(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const token = adminToken.trim();
+    if (token) sessionStorage.setItem('nowju_admin_token', token);
+    else sessionStorage.removeItem('nowju_admin_token');
+    await refresh();
+  }
+
+  async function clearAdminToken() {
+    sessionStorage.removeItem('nowju_admin_token');
+    setAdminToken('');
+    setAccounts([]); setJobs([]); setAssets([]); setPending([]);
+    setMessage('管理员令牌已从当前浏览器会话清除。');
+  }
 
   async function createAccount(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const fd = new FormData(e.currentTarget);
@@ -114,7 +143,14 @@ export default function App() {
   return <div className="app">
     <header className="topbar">
       <div><span className="eyebrow">NOWJU / 发布中控</span><h1>Publish OS</h1><p>内容生产 · 平台账号 · 发布队列 · 人工确认</p></div>
-      <button className="primary" onClick={refresh}>{loading ? '刷新中…' : '刷新全部'}</button>
+      <div className="actions">
+        <form className="inline" onSubmit={saveAdminToken}>
+          <input type="password" value={adminToken} onChange={(e) => setAdminToken(e.target.value)} placeholder="管理员令牌" autoComplete="off" />
+          <button type="submit">保存令牌</button>
+          {getAdminToken() && <button type="button" className="danger" onClick={clearAdminToken}>清除</button>}
+        </form>
+        <button className="primary" onClick={refresh}>{loading ? '刷新中…' : '刷新全部'}</button>
+      </div>
     </header>
 
     {message && <div className="alert">{message}</div>}
