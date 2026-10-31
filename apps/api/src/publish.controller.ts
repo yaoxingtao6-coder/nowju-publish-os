@@ -1,40 +1,22 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-
-type PublishStatus = 'draft' | 'queued' | 'processing' | 'awaiting_confirmation' | 'published' | 'failed';
-
-type PublishJob = {
-  id: string;
-  platform: string;
-  title?: string;
-  status: PublishStatus;
-  createdAt: string;
-};
-
-const jobs = new Map<string, PublishJob>();
+import { PublishService } from './publish.service';
 
 @Controller('publish-jobs')
 export class PublishController {
+  constructor(private readonly publishService: PublishService) {}
+
   @Get()
   list() {
-    return Array.from(jobs.values());
+    return this.publishService.list();
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return jobs.get(id) ?? { error: 'NOT_FOUND' };
+  async get(@Param('id') id: string) {
+    return (await this.publishService.get(id)) ?? { error: 'NOT_FOUND' };
   }
 
   @Post()
   create(@Body() body: { platform?: string; title?: string }) {
-    const id = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const job: PublishJob = {
-      id,
-      platform: body.platform ?? 'unknown',
-      title: body.title,
-      status: 'draft',
-      createdAt: new Date().toISOString(),
-    };
-    jobs.set(id, job);
-    return job;
+    return this.publishService.create(body);
   }
 }
