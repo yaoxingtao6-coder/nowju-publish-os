@@ -1,0 +1,14 @@
+{
+  "name": "nowju-publish-os",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --workspace apps/api run start:dev",
+    "build": "npm --workspace apps/api run build",
+    "test": "npm --workspace apps/api run test"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
