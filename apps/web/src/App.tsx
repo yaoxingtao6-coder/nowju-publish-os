@@ -7,13 +7,30 @@ const labels: Record<string, string> = {
 };
 
 type Account = { id: string; platform: string; displayName: string; authStatus: string; authMode?: string; expiresAt?: string | null };
-type Job = { id: string; platform: string; title?: string | null; status: string; createdAt: string };
+type Job = {
+  id: string;
+  platform: string;
+  title?: string | null;
+  content?: string | null;
+  status: string;
+  scheduledFor?: string | null;
+  retryCount?: number;
+  lastError?: string | null;
+  createdAt: string;
+};
 type Asset = { id: string; kind: string; fileName: string; storageUrl: string; createdAt?: string };
 type Confirmation = { publishJobId: string; platform?: string; title?: string; status?: string; createdAt?: string };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, ...init });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      detail = body?.message || body?.error || detail;
+    } catch {}
+    throw new Error(detail);
+  }
   return res.json();
 }
 
@@ -43,30 +60,55 @@ export default function App() {
     connected: accounts.filter(a => a.authStatus === 'connected' || a.authStatus === 'authorized').length,
     jobs: jobs.length,
     pending: pending.length,
+    failed: jobs.filter(j => j.status === 'failed' || j.status === 'needs_auth').length,
     assets: assets.length,
   }), [accounts, jobs, pending, assets]);
 
   async function createAccount(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const fd = new FormData(e.currentTarget);
-    await json('/platform-accounts', { method: 'POST', body: JSON.stringify({ platform: fd.get('platform'), displayName: fd.get('displayName'), authMode: 'human_confirmation' }) });
-    e.currentTarget.reset(); refresh();
+    try {
+      await json('/platform-accounts', { method: 'POST', body: JSON.stringify({ platform: fd.get('platform'), displayName: fd.get('displayName'), authMode: 'human_confirmation' }) });
+      e.currentTarget.reset(); await refresh();
+    } catch (err) { setMessage(`添加账号失败：${(err as Error).message}`); }
   }
 
   async function createJob(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const fd = new FormData(e.currentTarget);
-    await json('/publish-jobs', { method: 'POST', body: JSON.stringify({ platform: fd.get('platform'), title: fd.get('title') }) });
-    e.currentTarget.reset(); refresh();
+    const scheduledFor = String(fd.get('scheduledFor') || '').trim();
+    try {
+      await json('/publish-jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: fd.get('platform'),
+          title: fd.get('title'),
+          content: fd.get('content'),
+          scheduledFor: scheduledFor || undefined,
+        }),
+      });
+      e.currentTarget.reset(); await refresh();
+    } catch (err) { setMessage(`创建任务失败：${(err as Error).message}`); }
   }
 
   async function createAsset(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const fd = new FormData(e.currentTarget);
-    await json('/media-assets', { method: 'POST', body: JSON.stringify({ kind: fd.get('kind'), fileName: fd.get('fileName'), storageUrl: fd.get('storageUrl') }) });
-    e.currentTarget.reset(); refresh();
+    try {
+      await json('/media-assets', { method: 'POST', body: JSON.stringify({ kind: fd.get('kind'), fileName: fd.get('fileName'), storageUrl: fd.get('storageUrl') }) });
+      e.currentTarget.reset(); await refresh();
+    } catch (err) { setMessage(`登记素材失败：${(err as Error).message}`); }
   }
 
   async function decide(id: string, decision: 'approved' | 'rejected') {
-    await json(`/publish-confirmations/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify({ decision }) });
-    refresh();
+    try {
+      await json(`/publish-confirmations/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify({ decision }) });
+      await refresh();
+    } catch (err) { setMessage(`处理确认失败：${(err as Error).message}`); }
+  }
+
+  async function taskAction(id: string, action: 'cancel' | 'retry') {
+    try {
+      await json(`/publish-jobs/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+      await refresh();
+    } catch (err) { setMessage(`${action === 'retry' ? '重试' : '取消'}失败：${(err as Error).message}`); }
   }
 
   return <div className="app">
@@ -81,6 +123,7 @@ export default function App() {
       <Stat n={counts.connected} label="可用账号" />
       <Stat n={counts.jobs} label="发布任务" />
       <Stat n={counts.pending} label="待你确认" hot />
+      <Stat n={counts.failed} label="需处理" hot={counts.failed > 0} />
       <Stat n={counts.assets} label="素材记录" />
     </section>
 
@@ -94,13 +137,28 @@ export default function App() {
         <div className="list">{accounts.length ? accounts.map(a => <Row key={a.id} title={`${labels[a.platform] || a.platform} · ${a.displayName}`} meta={`状态 ${a.authStatus} · ${a.authMode || '未设置'}`} />) : <Empty text="还没有平台账号" />}</div>
       </Panel>
 
-      <Panel title="新建发布任务" subtitle="进入队列后自动记录状态与重试">
+      <Panel title="新建发布任务" subtitle="支持立即排队或指定时间发布">
         <form className="stack" onSubmit={createJob}>
           <select name="platform" required>{platforms.map(p => <option key={p} value={p}>{labels[p]}</option>)}</select>
           <input name="title" placeholder="内容标题 / 任务名" required />
+          <textarea name="content" placeholder="正文 / 发布说明（可选）" rows={4} />
+          <label>定时发布（可选）<input name="scheduledFor" type="datetime-local" /></label>
           <button className="primary">加入发布队列</button>
         </form>
-        <div className="list compact">{jobs.slice(0, 8).map(j => <Row key={j.id} title={`${labels[j.platform] || j.platform} · ${j.title || '未命名'}`} meta={j.status} badge={j.status} />)}</div>
+        <div className="list compact">
+          {jobs.length ? jobs.slice(0, 10).map(j => <div className="row" key={j.id}>
+            <div>
+              <strong>{labels[j.platform] || j.platform} · {j.title || '未命名'}</strong>
+              <span>{j.status}{j.scheduledFor ? ` · ${new Date(j.scheduledFor).toLocaleString()}` : ''}{j.retryCount ? ` · 重试 ${j.retryCount}` : ''}</span>
+              {j.lastError && <span>错误：{j.lastError}</span>}
+            </div>
+            <div className="actions">
+              {(j.status === 'failed' || j.status === 'needs_auth') && <button onClick={() => taskAction(j.id, 'retry')}>重试</button>}
+              {!['published', 'cancelled'].includes(j.status) && <button className="danger" onClick={() => taskAction(j.id, 'cancel')}>取消</button>}
+              <em>{j.status}</em>
+            </div>
+          </div>) : <Empty text="还没有发布任务" />}
+        </div>
       </Panel>
 
       <Panel title="待确认发布" subtitle="任何需要人工把关的平台都会停在这里">
